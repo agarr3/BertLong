@@ -96,23 +96,50 @@ def cleanSingleSentenceWithoutRemovingMeaning(x, minsize=3):
     processedx = strip_short(processedx, minsize=minsize)
     return processedx
 
-def processFileNamesWithFinanceDictAndClean(line, minsize=3):
-    
-    line = re.sub("/"," ",line)
-    line = re.sub("_"," ",line)
-    line = re.sub("-"," ",line)
-    line = re.sub(r'[`\-=~!@#$%^+;\'\"|<,./<>?\s]'," ",line)
-    line = line + ' '        
-    for find in sorted(TextCleanerDicts.financialDict,key=len, reverse=True):
-        findregex =  r' '  + find + ' '
-        replaceregex =  r'' +' ' +find + "-" +TextCleanerDicts.financialDict[find] + ' ' 
-        #print(findregex + ' ' + replaceregex)          
-        line = re.sub(findregex,replaceregex,line)
-        
+# def processFileNamesWithFinanceDictAndClean(line, minsize=3):
+#
+#     line = re.sub("/"," ",line)
+#     line = re.sub("_"," ",line)
+#     line = re.sub("-"," ",line)
+#     line = re.sub(r'[`\-=~!@#$%^+;\'\"|<,./<>?\s]'," ",line)
+#     line = line + ' '
+#     for find in sorted(TextCleanerDicts.financialDict,key=len, reverse=True):
+#         findregex =  r' '  + find + ' '
+#         replaceregex =  r'' +' ' +find + "-" +TextCleanerDicts.financialDict[find] + ' '
+#         #print(findregex + ' ' + replaceregex)
+#         line = re.sub(findregex,replaceregex,line)
+#
+#     line = cleanSingleSentenceWithoutRemovingMeaning(line, minsize=minsize)
+#     line = convert(line)
+#     line = strip_multiple_whitespaces(line)
+#     return line.strip()
+
+
+def processFileNamesWithFinanceDictAndClean(line, minsize=1):
+    line = re.sub("/", " ", line)
+    line = re.sub("_", " ", line)
+    line = re.sub("\d+([.]\d+)*\s*[-]", "", line)
+    line = re.sub("-", " ", line)
+    line = re.sub(r'[.](pdf|PDF|txt|xlsx|docx|doc|jpg|JPEG|png|PNG|pptx|zip|gif|GIF)', "", line)
+    line = re.sub(r'(pdf|PDF|txt|xlsx|docx|doc|jpg|JPEG|png|PNG|pptx|zip|gif|GIF)', "", line)
+    line = re.sub(r'[`\-=~!@#$%^+;\'\"|<,./<>?\s]', " ", line)
+    # line = ' ' + line + ' '
+    line = line + ' '
+
+    for find in sorted(TextCleanerDicts.financialDict, key=len, reverse=True):
+        findregex = r' ' + find + ' '
+        replaceregex = r'' + ' ' + find + "-" + TextCleanerDicts.financialDict[find] + ' '
+        # print(findregex + ' ' + replaceregex)
+        line = re.sub(findregex, replaceregex, line)
+
     line = cleanSingleSentenceWithoutRemovingMeaning(line, minsize=minsize)
     line = convert(line)
     line = strip_multiple_whitespaces(line)
     return line.strip()
+
+if __name__ == "__main__":
+    testString = "Q2 2018"
+    print(processFileNamesWithFinanceDictAndClean(testString))
     
     
     
