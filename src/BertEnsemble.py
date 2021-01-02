@@ -319,10 +319,10 @@ class BertEnsembleClassifier(object):
         validationDataFileName = validationDataFileName.rename(columns={"filename": "text"})
 
         content_training_set = CustomDataset(training_data_content, self.tokenizer, self.configuration.MAX_LEN)
-        filename_training_set = CustomDataset(training_data_filename, self.tokenizer, self.configuration.MAX_LEN)
+        filename_training_set = CustomDatasetFileName(training_data_filename, self.tokenizer, self.configuration.MAX_LEN)
 
         content_validation_set = CustomDataset(validationDataContent, self.tokenizer, self.configuration.MAX_LEN)
-        filename_validation_set = CustomDataset(validationDataFileName, self.tokenizer, self.configuration.MAX_LEN)
+        filename_validation_set = CustomDatasetFileName(validationDataFileName, self.tokenizer, self.configuration.MAX_LEN)
 
         content_training_loader = DataLoader(content_training_set,
                                              batch_size=self.configuration.TRAIN_BATCH_SIZE[0],
@@ -536,6 +536,40 @@ class BertEnsembleClassifier(object):
         fig.savefig(os.path.join(self.BASE_DIR , 'lr_plot_{}.png'.format(epoch)), bbox_inches='tight')
 
 
+class CustomDatasetFileName(Dataset):
+
+    def __init__(self, dataframe, tokenizer, max_len):
+        self.tokenizer = tokenizer
+        self.data = dataframe
+        self.text = dataframe.text
+        self.targets = self.data.labelvec
+        self.max_len = max_len
+
+    def __len__(self):
+        return len(self.text)
+
+    def __getitem__(self, index):
+        text = str(self.text[index])
+        text = " ".join(text.split()[0:self.max_len])
+
+        if(len(text) < 18):
+            text = '[UNK]'
+
+        inputs = self.tokenizer.encode_plus(
+            text,
+            None,
+            add_special_tokens=True,
+            max_length=self.max_len,
+            pad_to_max_length=True,
+            return_attention_mask=True,
+            truncation=True
+        )
+        ids = inputs['input_ids']
+        mask = inputs['attention_mask']
+
+        return torch.tensor(ids, dtype=torch.long), torch.tensor(mask, dtype=torch.long), torch.tensor(
+            self.targets[index], dtype=torch.float)
+
 
 class CustomDataset(Dataset):
 
@@ -591,9 +625,9 @@ if __name__ == '__main__':
             data = data.sample(frac=1).reset_index(drop=True)
             contentFileNameData = data[['content_trim', 'fileName', 'label']]
             contentFileNameData = contentFileNameData.rename(columns={"content_trim": "text","fileName":"filename"})
-            contentFileNameData.to_pickle(os.path.join(BASE_DIR, "fullContentFileNameData.pkl"))
+            contentFileNameData.to_pickle(os.path.join(BASE_DIR, "fullContentFileNameCleanedData.pkl"))
         else:
-            contentFileNameData = pd.read_pickle(os.path.join(BASE_DIR, "fullContentFileNameData.pkl"))
+            contentFileNameData = pd.read_pickle(os.path.join(BASE_DIR, "fullContentFileNameCleanedData.pkl"))
 
         validationData = validationDataOriginal[['content', 'fileName', 'label']]
         validationData = validationData.rename(columns={"content": "text","fileName":"filename"})
