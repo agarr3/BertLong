@@ -57,6 +57,8 @@ class BertEnsembleModelConfig:
     #BERT_MODEL_OP = "last_hidden"
     BERT_MODEL_OP = "CLS"
 
+    VALID_FNAME_LEN_TH = 18
+
 
 
 class BertEnsembletModel(torch.nn.Module):
@@ -85,6 +87,7 @@ class BertEnsembletModel(torch.nn.Module):
             head_mask=None,
             inputs_embeds=None,
             class_label=None,
+            exclusion_mask= None
     ):
 
         content_output = self.bert_model_content(input_ids[0], attention_mask=attention_mask[0])
@@ -93,11 +96,18 @@ class BertEnsembletModel(torch.nn.Module):
         elif self.configuration.BERT_MODEL_OP == "CLS":
             op_content = content_output[0][:, 0, :]
 
+        if exclusion_mask:
+            op_content = op_content * exclusion_mask[0]
+
+
         filename_output = self.bert_model_filename(input_ids[1], attention_mask=attention_mask[1])
         if self.configuration.BERT_MODEL_OP == "last_hidden":
             op_filename = filename_output[1]
         elif self.configuration.BERT_MODEL_OP == "CLS":
             op_filename = filename_output[0][:, 0, :]
+
+        if exclusion_mask:
+            op_filename = op_filename * exclusion_mask[1]
 
 
         op_bert_ensemble = torch.cat([op_content, op_filename], dim=1)
@@ -185,6 +195,7 @@ class BertEnsembleClassifier(object):
 
             contentIds = torch.tensor(ids, dtype=torch.long)
             contentMask = torch.tensor(mask, dtype=torch.long)
+            contenteExclusionMask = torch.ones((1))
 
             inputs = self.tokenizer.encode_plus(
                 fileName,
@@ -205,9 +216,15 @@ class BertEnsembleClassifier(object):
             fileNameIds = torch.tensor(ids, dtype=torch.long)
             fileNameMask = torch.tensor(mask, dtype=torch.long)
 
+            fileNameExclusionMask = torch.ones((1))
+
+            if (len(fileName) < self.configuration.VALID_FNAME_LEN_TH):
+                fileNameExclusionMask = torch.zeros((1))
+
             inputs = {
                 "input_ids": [contentIds, fileNameIds],
                 "attention_mask": [contentMask, fileNameMask],
+                "exclusion_mask": [contenteExclusionMask,fileNameExclusionMask]
             }
 
             outputs = self.model(**inputs)
@@ -234,7 +251,8 @@ class BertEnsembleClassifier(object):
             targets = batch_1[2]
             inputs = {
                 "input_ids": [batch_1[0], batch_2[0]],
-                "attention_mask": [batch_1[1],batch_2[1]]
+                "attention_mask": [batch_1[1],batch_2[1]],
+                "exclusion_mask": [batch_1[3],batch_2[3]]
             }
             outputs = model(**inputs)
             loss = self.loss_fn(outputs, targets)
@@ -267,7 +285,8 @@ class BertEnsembleClassifier(object):
             targets = batch_1[2]
             inputs = {
                 "input_ids": [batch_1[0],batch_2[0]],
-                "attention_mask": [batch_1[1],batch_2[1]]
+                "attention_mask": [batch_1[1],batch_2[1]],
+                "exclusion_mask": [batch_1[3],batch_2[3]]
             }
             outputs = model(**inputs)
             loss = self.loss_fn(outputs, targets)
@@ -319,10 +338,10 @@ class BertEnsembleClassifier(object):
         validationDataFileName = validationDataFileName.rename(columns={"filename": "text"})
 
         content_training_set = CustomDataset(training_data_content, self.tokenizer, self.configuration.MAX_LEN)
-        filename_training_set = CustomDatasetFileName(training_data_filename, self.tokenizer, self.configuration.MAX_LEN)
+        filename_training_set = CustomDatasetFileName(training_data_filename, self.tokenizer, self.configuration.MAX_LEN, self.configuration.VALID_FNAME_LEN_TH)
 
         content_validation_set = CustomDataset(validationDataContent, self.tokenizer, self.configuration.MAX_LEN)
-        filename_validation_set = CustomDatasetFileName(validationDataFileName, self.tokenizer, self.configuration.MAX_LEN)
+        filename_validation_set = CustomDatasetFileName(validationDataFileName, self.tokenizer, self.configuration.MAX_LEN, self.configuration.VALID_FNAME_LEN_TH)
 
         content_training_loader = DataLoader(content_training_set,
                                              batch_size=self.configuration.TRAIN_BATCH_SIZE[0],
@@ -538,12 +557,13 @@ class BertEnsembleClassifier(object):
 
 class CustomDatasetFileName(Dataset):
 
-    def __init__(self, dataframe, tokenizer, max_len):
+    def __init__(self, dataframe, tokenizer, max_len, valid_len_th):
         self.tokenizer = tokenizer
         self.data = dataframe
         self.text = dataframe.text
         self.targets = self.data.labelvec
         self.max_len = max_len
+        self.valid_len_th = valid_len_th
 
     def __len__(self):
         return len(self.text)
@@ -551,9 +571,6 @@ class CustomDatasetFileName(Dataset):
     def __getitem__(self, index):
         text = str(self.text[index])
         text = " ".join(text.split()[0:self.max_len])
-
-        if(len(text) < 18):
-            text = '[UNK]'
 
         inputs = self.tokenizer.encode_plus(
             text,
@@ -567,8 +584,13 @@ class CustomDatasetFileName(Dataset):
         ids = inputs['input_ids']
         mask = inputs['attention_mask']
 
+        exclusionMask = torch.ones((1))
+
+        if (len(text) < self.valid_len_th):
+            exclusionMask = torch.zeros((1))
+
         return torch.tensor(ids, dtype=torch.long), torch.tensor(mask, dtype=torch.long), torch.tensor(
-            self.targets[index], dtype=torch.float)
+            self.targets[index], dtype=torch.float), exclusionMask
 
 
 class CustomDataset(Dataset):
@@ -599,14 +621,16 @@ class CustomDataset(Dataset):
         ids = inputs['input_ids']
         mask = inputs['attention_mask']
 
+        exclusionMask = torch.ones((1))
+
         return torch.tensor(ids, dtype=torch.long), torch.tensor(mask, dtype=torch.long), torch.tensor(
-            self.targets[index], dtype=torch.float)
+            self.targets[index], dtype=torch.float), exclusionMask
 
 
 if __name__ == '__main__':
     runMode = "train"
-    val_data_path = "/Users/ragarwal/eclipse-workspace/PyTEnsembleClassifier/src/doc_category_validation_data.pkl"
-    #val_data_path = "/home/ec2-user/rajat/doc_category_validation_data.pkl"
+    #val_data_path = "/Users/ragarwal/eclipse-workspace/PyTEnsembleClassifier/src/doc_category_validation_data.pkl"
+    val_data_path = "/home/ec2-user/rajat/doc_category_validation_data.pkl"
     validationDataOriginal = pd.read_pickle(val_data_path)
     BASE_DIR = "bert_ensemble_content"
     if(runMode=="train"):

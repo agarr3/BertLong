@@ -39,13 +39,14 @@ class BertEnsembleModelConfig:
     savedModelFileName = 'Bert_Ensemble_Model_v1.pt'
     tokenizer = BertTokenizer.from_pretrained(model_name)
     MAX_LEN = 512
+    MAX_LEN_FILENAME = 20
     TRAIN_BATCH_SIZE = [1,1,1,1,1]
     ACCUMULATION_STEPS = 1
     VALID_BATCH_SIZE = 2
     EPOCHS = 5
 
-    LEARNING_RATE = 1e-05
-    LERANING_RATE_DECAY_MANUAL = [1, 1, 1, 1, 1]
+    LEARNING_RATE = 1e-03
+    LERANING_RATE_DECAY_MANUAL = [1, 0.9, 0.9*0.9, 0.9*0.9*0.9, 0.9*0.9*0.9*0.9]
     LEARNING_RATE_AUTO_DECAY_FLAG = False
     LR_DECAY_MODE = "EPOCH"
 
@@ -58,6 +59,8 @@ class BertEnsembleModelConfig:
     #LOSS_FN = "CrossEntropyLoss"
     #BERT_MODEL_OP = "last_hidden"
     BERT_MODEL_OP = "CLS"
+
+    VALID_FNAME_LEN_TH = 18
 
 
 
@@ -75,7 +78,8 @@ class BertEnsembletModel(torch.nn.Module):
         self.bert_model_content = BertModel.from_pretrained(self.configuration.model_name)
         self.bert_model_filename = BertModel.from_pretrained(self.configuration.model_name)
 
-        self.digitcaps = DenseCapsule(in_num_caps=512*2, in_dim_caps=768,
+        self.digitcaps = DenseCapsule(in_num_caps=self.configuration.MAX_LEN + self.configuration.MAX_LEN_FILENAME,
+                                      in_dim_caps=768,
                                       out_num_caps=num_classes, out_dim_caps=16,
                                       routings=3)
 
@@ -92,12 +96,19 @@ class BertEnsembletModel(torch.nn.Module):
             head_mask=None,
             inputs_embeds=None,
             class_label=None,
+            exclusion_mask= None
     ):
 
         content_output = self.bert_model_content(input_ids[0], attention_mask=attention_mask[0])
         filename_output = self.bert_model_filename(input_ids[1], attention_mask=attention_mask[1])
 
+        if exclusion_mask:
+            content_output = content_output * exclusion_mask[0]
+            filename_output = filename_output * exclusion_mask[1]
+
         op_bert_ensemble = torch.cat([content_output[0], filename_output[0]], dim=1)
+
+        op_bert_ensemble = utils.squash(op_bert_ensemble)
 
         classvecs = self.digitcaps(op_bert_ensemble)
         outputs = classvecs.norm(dim=-1)
@@ -151,10 +162,7 @@ class BertEnsembleClassifier(object):
 
         document = " ".join(document.split(" ")[0:self.configuration.MAX_LEN])
         if len(fileName) > self.configuration.MAX_LEN:
-            fileName = " ".join(fileName.split(" ")[0:self.configuration.MAX_LEN])
-
-        if (len(fileName) < 18):
-            fileName = '[UNK]'
+            fileName = " ".join(fileName.split(" ")[0:self.configuration.MAX_LEN_FILENAME])
 
         with torch.no_grad():
             inputs = self.tokenizer.encode_plus(
@@ -175,12 +183,13 @@ class BertEnsembleClassifier(object):
 
             contentIds = torch.tensor(ids, dtype=torch.long)
             contentMask = torch.tensor(mask, dtype=torch.long)
+            contenteExclusionMask = torch.ones((1))
 
             inputs = self.tokenizer.encode_plus(
                 fileName,
                 None,
                 add_special_tokens=True,
-                max_length=self.configuration.MAX_LEN,
+                max_length=self.configuration.MAX_LEN_FILENAME,
                 pad_to_max_length=True,
                 return_attention_mask=True,
                 # return_tensors='pt',
@@ -195,9 +204,15 @@ class BertEnsembleClassifier(object):
             fileNameIds = torch.tensor(ids, dtype=torch.long)
             fileNameMask = torch.tensor(mask, dtype=torch.long)
 
+            fileNameExclusionMask = torch.ones((1))
+
+            if (len(fileName) < self.configuration.VALID_FNAME_LEN_TH):
+                fileNameExclusionMask = torch.zeros((1))
+
             inputs = {
                 "input_ids": [contentIds, fileNameIds],
                 "attention_mask": [contentMask, fileNameMask],
+                "exclusion_mask": [contenteExclusionMask,fileNameExclusionMask]
             }
 
             outputs = self.model(**inputs)
@@ -237,7 +252,8 @@ class BertEnsembleClassifier(object):
             targets = batch_1[2]
             inputs = {
                 "input_ids": [batch_1[0], batch_2[0]],
-                "attention_mask": [batch_1[1],batch_2[1]]
+                "attention_mask": [batch_1[1],batch_2[1]],
+                "exclusion_mask": [batch_1[3],batch_2[3]]
             }
             outputs = model(**inputs)
             loss = self.caps_loss(outputs, targets)
@@ -270,7 +286,8 @@ class BertEnsembleClassifier(object):
             targets = batch_1[2]
             inputs = {
                 "input_ids": [batch_1[0],batch_2[0]],
-                "attention_mask": [batch_1[1],batch_2[1]]
+                "attention_mask": [batch_1[1],batch_2[1]],
+                "exclusion_mask": [batch_1[3],batch_2[3]]
             }
             outputs = model(**inputs)
             loss = self.caps_loss(outputs, targets)
@@ -322,10 +339,10 @@ class BertEnsembleClassifier(object):
         validationDataFileName = validationDataFileName.rename(columns={"filename": "text"})
 
         content_training_set = CustomDataset(training_data_content, self.tokenizer, self.configuration.MAX_LEN)
-        filename_training_set = CustomDatasetFileName(training_data_filename, self.tokenizer, self.configuration.MAX_LEN)
+        filename_training_set = CustomDatasetFileName(training_data_filename, self.tokenizer, self.configuration.MAX_LEN_FILENAME, self.configuration.VALID_FNAME_LEN_TH)
 
         content_validation_set = CustomDataset(validationDataContent, self.tokenizer, self.configuration.MAX_LEN)
-        filename_validation_set = CustomDatasetFileName(validationDataFileName, self.tokenizer, self.configuration.MAX_LEN)
+        filename_validation_set = CustomDatasetFileName(validationDataFileName, self.tokenizer, self.configuration.MAX_LEN_FILENAME, self.configuration.VALID_FNAME_LEN_TH)
 
         content_training_loader = DataLoader(content_training_set,
                                              batch_size=self.configuration.TRAIN_BATCH_SIZE[0],
@@ -393,7 +410,7 @@ class BertEnsembleClassifier(object):
 
         early_stopping = EarlyStoppingAndCheckPointer(patience=self.configuration.PATIENCE, verbose=True, basedir=self.BASE_DIR)
 
-        self.initialLog(model,content_training_loader,filename_training_loader,content_validation_loader,filename_validation_loader)
+        #self.initialLog(model,content_training_loader,filename_training_loader,content_validation_loader,filename_validation_loader)
         for epoch in range(savedEpoch, self.configuration.EPOCHS):
             print("starting training. The LR is {}".format(scheduler.get_lr()))
 
@@ -541,12 +558,13 @@ class BertEnsembleClassifier(object):
 
 class CustomDatasetFileName(Dataset):
 
-    def __init__(self, dataframe, tokenizer, max_len):
+    def __init__(self, dataframe, tokenizer, max_len, valid_len_th):
         self.tokenizer = tokenizer
         self.data = dataframe
         self.text = dataframe.text
         self.targets = self.data.labelvec
         self.max_len = max_len
+        self.valid_len_th = valid_len_th
 
     def __len__(self):
         return len(self.text)
@@ -554,9 +572,6 @@ class CustomDatasetFileName(Dataset):
     def __getitem__(self, index):
         text = str(self.text[index])
         text = " ".join(text.split()[0:self.max_len])
-
-        if(len(text) < 18):
-            text = '[UNK]'
 
         inputs = self.tokenizer.encode_plus(
             text,
@@ -570,8 +585,13 @@ class CustomDatasetFileName(Dataset):
         ids = inputs['input_ids']
         mask = inputs['attention_mask']
 
+        exclusionMask = torch.ones((1))
+
+        if (len(text) < self.valid_len_th):
+            exclusionMask = torch.zeros((1))
+
         return torch.tensor(ids, dtype=torch.long), torch.tensor(mask, dtype=torch.long), torch.tensor(
-            self.targets[index], dtype=torch.float)
+            self.targets[index], dtype=torch.float), exclusionMask
 
 
 class CustomDataset(Dataset):
@@ -602,8 +622,10 @@ class CustomDataset(Dataset):
         ids = inputs['input_ids']
         mask = inputs['attention_mask']
 
+        exclusionMask = torch.ones((1))
+
         return torch.tensor(ids, dtype=torch.long), torch.tensor(mask, dtype=torch.long), torch.tensor(
-            self.targets[index], dtype=torch.float)
+            self.targets[index], dtype=torch.float), exclusionMask
 
 
 if __name__ == '__main__':
