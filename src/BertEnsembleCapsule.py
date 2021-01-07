@@ -7,6 +7,7 @@ import gc
 import math
 import os
 
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
 from transformers import LongformerTokenizer, LongformerConfig, get_linear_schedule_with_warmup, BertConfig, \
     BertTokenizer, BertModel
@@ -17,6 +18,7 @@ import joblib
 import torch
 from torch import cuda
 
+from capsule import utils
 from capsule.capsuleclassification import DenseCapsule
 from preprocessing import transformSingle, processFileNamesWithFinanceDictAndClean
 import pandas as pd
@@ -61,6 +63,7 @@ class BertEnsembleModelConfig:
     BERT_MODEL_OP = "CLS"
 
     VALID_FNAME_LEN_TH = 18
+    HELD_OUT_VALIDATION = True
 
 
 
@@ -150,6 +153,11 @@ class BertEnsembleClassifier(object):
             self.train_accuracy_list = []
             self.valid_accuracy_list = []
             self.LR = []
+
+            self.avg_test_losses = []
+            self.test_accuracy_list = []
+
+
         else:
             raise Exception("illegal mode")
 
@@ -321,7 +329,10 @@ class BertEnsembleClassifier(object):
             gc.collect()
         return train_losses, accuracyBoolList, confusionMatrix
 
-    def train(self, training_data, validationData, trainDataSize, trainFromScratch=True):
+    def train(self, training_data, testing_data, validationData, trainDataSize, trainFromScratch=True):
+
+        if not self.configuration.HELD_OUT_VALIDATION:
+            training_data = pd.concat([training_data,testing_data])
 
         self.lb = LabelBinarizer()
         training_data['labelvec'] = self.lb.fit_transform(training_data['label']).tolist()
@@ -338,11 +349,22 @@ class BertEnsembleClassifier(object):
         validationDataFileName = validationData[['filename', 'labelvec']]
         validationDataFileName = validationDataFileName.rename(columns={"filename": "text"})
 
+        testing_data['labelvec'] = self.lb.transform(testing_data['label']).tolist()
+
+        testingDataContent = testing_data[['text', 'labelvec']]
+        testingDataFileName = testing_data[['filename', 'labelvec']]
+        testingDataFileName = testingDataFileName.rename(columns={"filename": "text"})
+
         content_training_set = CustomDataset(training_data_content, self.tokenizer, self.configuration.MAX_LEN)
         filename_training_set = CustomDatasetFileName(training_data_filename, self.tokenizer, self.configuration.MAX_LEN_FILENAME, self.configuration.VALID_FNAME_LEN_TH)
 
         content_validation_set = CustomDataset(validationDataContent, self.tokenizer, self.configuration.MAX_LEN)
         filename_validation_set = CustomDatasetFileName(validationDataFileName, self.tokenizer, self.configuration.MAX_LEN_FILENAME, self.configuration.VALID_FNAME_LEN_TH)
+
+        content_testing_set = CustomDataset(testingDataContent, self.tokenizer, self.configuration.MAX_LEN)
+        filename_testing_set = CustomDatasetFileName(testingDataFileName, self.tokenizer,
+                                                        self.configuration.MAX_LEN_FILENAME,
+                                                        self.configuration.VALID_FNAME_LEN_TH)
 
         content_training_loader = DataLoader(content_training_set,
                                              batch_size=self.configuration.TRAIN_BATCH_SIZE[0],
@@ -357,6 +379,13 @@ class BertEnsembleClassifier(object):
         filename_validation_loader = DataLoader(filename_validation_set,
                                                batch_size=self.configuration.VALID_BATCH_SIZE,
                                                sampler=SequentialSampler(filename_validation_set), drop_last=False)
+
+        content_testing_loader = DataLoader(content_testing_set,
+                                               batch_size=self.configuration.VALID_BATCH_SIZE,
+                                               sampler=SequentialSampler(content_testing_set), drop_last=False)
+        filename_testing_loader = DataLoader(filename_testing_set,
+                                                batch_size=self.configuration.VALID_BATCH_SIZE,
+                                                sampler=SequentialSampler(filename_testing_set), drop_last=False)
 
         model = BertEnsembletModel(len(self.lb.classes_))
 
@@ -410,7 +439,7 @@ class BertEnsembleClassifier(object):
 
         early_stopping = EarlyStoppingAndCheckPointer(patience=self.configuration.PATIENCE, verbose=True, basedir=self.BASE_DIR)
 
-        #self.initialLog(model,content_training_loader,filename_training_loader,content_validation_loader,filename_validation_loader)
+        self.initialLog(model,content_training_loader,filename_training_loader,content_validation_loader,filename_validation_loader, content_testing_loader, filename_testing_loader)
         for epoch in range(savedEpoch, self.configuration.EPOCHS):
             print("starting training. The LR is {}".format(scheduler.get_lr()))
 
@@ -452,9 +481,22 @@ class BertEnsembleClassifier(object):
             print('Epoch: {},  Total training accuracy:  {}'.format(epoch+1, accuracy_train))
             print('Epoch: {},  Total Validation accuracy:  {}'.format(epoch+1, accuracy_valid))
 
-            early_stopping(valid_loss, model, optimizer, epoch, scheduler)
+            confusionMatrixTest = None
+            if self.configuration.HELD_OUT_VALIDATION:
+                test_losses, accuracyBoolListTest, confusionMatrixTest = self.run_evaluation(model,
+                                                                                                content_testing_loader,
+                                                                                                filename_testing_loader)
+                test_loss = np.average(test_losses)
+                accuracy_test = sum(accuracyBoolListTest) / len(accuracyBoolListTest) * 100
+
+                self.avg_test_losses.append(test_loss)
+                self.test_accuracy_list.append(accuracy_test)
+                early_stopping(test_loss, model, optimizer, epoch, scheduler)
+            else:
+                early_stopping(valid_loss, model, optimizer, epoch, scheduler)
+
             self.visualizeTraining(epoch+1, confusionMatrixTrain)
-            self.visualizeValAccuracy(epoch+1, confusionMatrixValid)
+            self.visualizeValAccuracy(epoch+1, confusionMatrixValid, confusionMatrixTest)
             self.visualizeLR(epoch + 1)
             if early_stopping.early_stop:
                 print("Early stopping")
@@ -465,7 +507,7 @@ class BertEnsembleClassifier(object):
                    content_training_loader,
                    filename_training_loader,
                    content_validation_loader,
-                   filename_validation_loader):
+                   filename_validation_loader, content_testing_loader, filename_testing_loader):
         train_losses, accuracyBoolListTrain, confusionMatrixTrain = self.run_evaluation(model,content_training_loader,filename_training_loader)
         valid_losses, accuracyBoolListValid, confusionMatrixValid = self.run_evaluation(model,
                                                                                         content_validation_loader,
@@ -480,18 +522,35 @@ class BertEnsembleClassifier(object):
         self.avg_valid_losses.append(valid_loss)
         self.train_accuracy_list.append(accuracy_train)
         self.valid_accuracy_list.append(accuracy_valid)
+
+        confusionMatrixTest = None
+        if self.configuration.HELD_OUT_VALIDATION:
+            test_losses, accuracyBoolListTest, confusionMatrixTest = self.run_evaluation(model,
+                                                                                            content_testing_loader,
+                                                                                            filename_testing_loader)
+            test_loss = np.average(test_losses)
+            accuracy_test = sum(accuracyBoolListTest) / len(accuracyBoolListTest) * 100
+
+            self.avg_test_losses.append(test_loss)
+            self.test_accuracy_list.append(accuracy_test)
+            self.visualizeTraining(0, confusionMatrixTrain)
+
         self.visualizeTraining(0, confusionMatrixTrain)
-        self.visualizeValAccuracy(0, confusionMatrixValid)
+        self.visualizeValAccuracy(0, confusionMatrixValid, confusionMatrixTest)
 
     def visualizeTraining(self, epoch, confusionMatrixTrain):
         # visualize the loss as the network trained
         fig = plt.figure(figsize=(10, 8))
         plt.plot(range(0, len(self.avg_train_losses)), self.avg_train_losses, label='Training Loss')
         plt.plot(range(0, len(self.avg_valid_losses)), self.avg_valid_losses, label='Validation Loss')
-
-        # find position of lowest validation loss
-        minposs = self.avg_valid_losses.index(min(self.avg_valid_losses))
-        plt.axvline(minposs, linestyle='--', color='r', label='Early Stopping Checkpoint')
+        if self.configuration.HELD_OUT_VALIDATION:
+            plt.plot(range(0, len(self.avg_test_losses)), self.avg_test_losses, label='Test Loss')
+            minposs = self.avg_test_losses.index(min(self.avg_test_losses))
+            plt.axvline(minposs, linestyle='--', color='r', label='Early Stopping Checkpoint')
+        else:
+            # find position of lowest validation loss
+            minposs = self.avg_valid_losses.index(min(self.avg_valid_losses))
+            plt.axvline(minposs, linestyle='--', color='r', label='Early Stopping Checkpoint')
 
         plt.xlabel('epochs')
         plt.ylabel('loss')
@@ -512,11 +571,14 @@ class BertEnsembleClassifier(object):
         figure = hmap.get_figure()
         figure.savefig(os.path.join(self.BASE_DIR ,'training_confusion_matrix_{}.png'.format(epoch)), dpi=400)
 
-    def visualizeValAccuracy(self, epoch, confusionMatrix):
+    def visualizeValAccuracy(self, epoch, confusionMatrix, confusionMatrixTest=None):
         # visualize the loss as the network trained
         fig = plt.figure(figsize=(10, 8))
         plt.plot(range(0, len(self.valid_accuracy_list)), self.valid_accuracy_list, label='Validation Accuracy')
         plt.plot(range(0, len(self.train_accuracy_list)), self.train_accuracy_list, label='Training Accuracy')
+
+        if self.configuration.HELD_OUT_VALIDATION:
+            plt.plot(range(0, len(self.test_accuracy_list)), self.test_accuracy_list, label='Test Accuracy')
 
         # find position of lowest validation loss
 
@@ -536,6 +598,18 @@ class BertEnsembleClassifier(object):
         hmap.set_yticklabels(hmap.get_ymajorticklabels(), fontsize=6)
         figure = hmap.get_figure()
         figure.savefig(os.path.join(self.BASE_DIR ,'validation_confusion_matrix_{}.png'.format(epoch)), dpi=400)
+
+        if self.configuration.HELD_OUT_VALIDATION and confusionMatrixTest is not None:
+            confusionMatrix = confusionMatrixTest.numpy()
+            confusionMatrix = confusionMatrix / confusionMatrix.astype(np.float).sum(axis=1, keepdims=True)
+            hmap = sns.heatmap(confusionMatrix, annot=True,
+                               fmt='.2', cmap='Blues', annot_kws={"size": 6}, xticklabels=self.lb.classes_,
+                               yticklabels=self.lb.classes_)
+            hmap.set_xticklabels(hmap.get_xmajorticklabels(), fontsize=6)
+            hmap.set_yticklabels(hmap.get_ymajorticklabels(), fontsize=6)
+            figure = hmap.get_figure()
+            figure.savefig(os.path.join(self.BASE_DIR, 'test_confusion_matrix_{}.png'.format(epoch)), dpi=400)
+
 
     def visualizeLR(self, epoch):
         # visualize the loss as the network trained
@@ -654,11 +728,14 @@ if __name__ == '__main__':
         else:
             contentFileNameData = pd.read_pickle(os.path.join(BASE_DIR, "fullContentFileNameCleanedData.pkl"))
 
+        train, test = train_test_split(contentFileNameData, test_size=0.1, random_state=0, stratify=contentFileNameData[['label']])
+        train = train.reset_index(drop=True)
+        test = test.reset_index(drop=True)
         validationData = validationDataOriginal[['content', 'fileName', 'label']]
         validationData = validationData.rename(columns={"content": "text","fileName":"filename"})
         validationData = validationData.reset_index(drop=True)
         bert_ensemble_model = BertEnsembleClassifier(BASE_DIR, mode="train")
-        bert_ensemble_model.train(contentFileNameData, validationData, len(contentFileNameData.index), trainFromScratch=True)
+        bert_ensemble_model.train(train, test, validationData, len(contentFileNameData.index), trainFromScratch=True)
         print("After Training - validation accuracy {}".format(bert_ensemble_model.valid_accuracy_list))
         print("After Training - traininng accuracy {}".format(bert_ensemble_model.train_accuracy_list))
         print("After Training - Training loss List {}".format(bert_ensemble_model.avg_train_losses))
