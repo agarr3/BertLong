@@ -42,12 +42,12 @@ class BertEnsembleModelConfig:
     tokenizer = BertTokenizer.from_pretrained(model_name)
     MAX_LEN = 512
     MAX_LEN_FILENAME = 20
-    TRAIN_BATCH_SIZE = [1,1,1,1,1]
+    TRAIN_BATCH_SIZE = [2,2,2,1,1]
     ACCUMULATION_STEPS = 1
     VALID_BATCH_SIZE = 2
     EPOCHS = 5
 
-    LEARNING_RATE = 1e-03
+    LEARNING_RATE = 1e-05
     LERANING_RATE_DECAY_MANUAL = [1, 0.9, 0.9*0.9, 0.9*0.9*0.9, 0.9*0.9*0.9*0.9]
     LEARNING_RATE_AUTO_DECAY_FLAG = False
     LR_DECAY_MODE = "EPOCH"
@@ -57,13 +57,15 @@ class BertEnsembleModelConfig:
     WARM_UP_RATIO = 0.06
     WARM_UP_STEPS = 0
     max_grad_norm = None
-    LOSS_FN = "BCEWithLogitsLoss"
+    #LOSS_FN = "BCEWithLogitsLoss"
     #LOSS_FN = "CrossEntropyLoss"
+    LOSS_FN = "MarginLoss"
     #BERT_MODEL_OP = "last_hidden"
     BERT_MODEL_OP = "CLS"
 
     VALID_FNAME_LEN_TH = 18
     HELD_OUT_VALIDATION = True
+    CONDITIONAL_TRAINING = False
 
 
 
@@ -105,11 +107,14 @@ class BertEnsembletModel(torch.nn.Module):
         content_output = self.bert_model_content(input_ids[0], attention_mask=attention_mask[0])
         filename_output = self.bert_model_filename(input_ids[1], attention_mask=attention_mask[1])
 
-        if exclusion_mask:
-            content_output = content_output * exclusion_mask[0]
-            filename_output = filename_output * exclusion_mask[1]
+        if exclusion_mask is not None and self.configuration.CONDITIONAL_TRAINING:
+            content_output = content_output[0] * exclusion_mask[0]
+            filename_output = filename_output[0] * exclusion_mask[1]
+        else:
+            content_output = content_output[0]
+            filename_output = filename_output[0]
 
-        op_bert_ensemble = torch.cat([content_output[0], filename_output[0]], dim=1)
+        op_bert_ensemble = torch.cat([content_output, filename_output], dim=1)
 
         op_bert_ensemble = utils.squash(op_bert_ensemble)
 
@@ -233,6 +238,8 @@ class BertEnsembleClassifier(object):
             torch.nn.CrossEntropyLoss()(outputs, targets)
         elif self.configuration.LOSS_FN == "BCEWithLogitsLoss":
             return torch.nn.BCEWithLogitsLoss()(outputs, targets)
+        elif self.configuration.LOSS_FN == "MarginLoss":
+            return self.caps_loss(targets, outputs)
 
     def caps_loss(self, y_true, y_pred):
         """
@@ -264,7 +271,7 @@ class BertEnsembleClassifier(object):
                 "exclusion_mask": [batch_1[3],batch_2[3]]
             }
             outputs = model(**inputs)
-            loss = self.caps_loss(outputs, targets)
+            loss = self.loss_fn(outputs, targets)
             valid_losses.append(loss.item())
             _, predicted = torch.max(outputs, 1)
             _, trueClass = torch.max(targets, 1)
@@ -298,7 +305,7 @@ class BertEnsembleClassifier(object):
                 "exclusion_mask": [batch_1[3],batch_2[3]]
             }
             outputs = model(**inputs)
-            loss = self.caps_loss(outputs, targets)
+            loss = self.loss_fn(outputs, targets)
             train_losses.append(loss.item())
             if self.configuration.ACCUMULATION_STEPS != 1:
                 loss = loss / self.configuration.ACCUMULATION_STEPS
@@ -439,7 +446,7 @@ class BertEnsembleClassifier(object):
 
         early_stopping = EarlyStoppingAndCheckPointer(patience=self.configuration.PATIENCE, verbose=True, basedir=self.BASE_DIR)
 
-        self.initialLog(model,content_training_loader,filename_training_loader,content_validation_loader,filename_validation_loader, content_testing_loader, filename_testing_loader)
+        #self.initialLog(model,content_training_loader,filename_training_loader,content_validation_loader,filename_validation_loader, content_testing_loader, filename_testing_loader)
         for epoch in range(savedEpoch, self.configuration.EPOCHS):
             print("starting training. The LR is {}".format(scheduler.get_lr()))
 
