@@ -6,6 +6,7 @@ Created on 03-Oct-2020
 import gc
 import math
 import os
+import random
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
@@ -66,6 +67,8 @@ class BertEnsembleModelConfig:
     VALID_FNAME_LEN_TH = 18
     HELD_OUT_VALIDATION = True
     CONDITIONAL_TRAINING = False
+
+    DETERMINISTIC = True
 
 
 
@@ -140,6 +143,9 @@ class BertEnsembleClassifier(object):
         self.labelEncoderPath = os.path.join(self.BASE_DIR, self.configuration.labelEncoderFileName)
         self.modelPath = os.path.join(self.BASE_DIR, self.configuration.savedModelFileName)
         self.device = 'cuda' if cuda.is_available() else 'cpu'
+
+        if self.configuration.DETERMINISTIC:
+            self.seed_everything()
 
         self.tokenizer = self.configuration.tokenizer
         if mode == "eval":
@@ -232,6 +238,14 @@ class BertEnsembleClassifier(object):
             prediction = torch.sigmoid(outputs)
 
         return self.lb.inverse_transform(prediction.detach().numpy())
+
+    def seed_everything(self, seed=1234):
+        random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        np.random.seed(seed)
+        os.environ['PYTHONHASHSEED'] = str(seed)
+        torch.backends.cudnn.deterministic = True
 
     def loss_fn(self, outputs, targets):
         if self.configuration.LOSS_FN == "CrossEntropyLoss":
