@@ -111,8 +111,8 @@ class BertEnsembletModel(torch.nn.Module):
         filename_output = self.bert_model_filename(input_ids[1], attention_mask=attention_mask[1])
 
         if exclusion_mask is not None and self.configuration.CONDITIONAL_TRAINING:
-            content_output = content_output[0] * exclusion_mask[0]
-            filename_output = filename_output[0] * exclusion_mask[1]
+            content_output = content_output[0] * exclusion_mask[0].unsqueeze(dim=-1)
+            filename_output = filename_output[0] * exclusion_mask[1].unsqueeze(dim=-1)
         else:
             content_output = content_output[0]
             filename_output = filename_output[0]
