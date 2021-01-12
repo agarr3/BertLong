@@ -12,7 +12,7 @@ import shutil
 class EarlyStoppingAndCheckPointer:
     """Early stops the training if validation loss doesn't improve after a given patience."""
 
-    def __init__(self, patience=7, verbose=False, delta=0, basedir='.', trace_func=print):
+    def __init__(self, patience=7, verbose=False, delta=0, basedir='.', trace_func=print, epoch_level_save=False):
         """
         Args:
             patience (int): How long to wait after last time validation loss improved.
@@ -36,6 +36,7 @@ class EarlyStoppingAndCheckPointer:
         self.basedir = basedir
         self.trace_func = trace_func
         self.modelCheckPointer = ModelCheckPointer()
+        self.epoch_level_save = epoch_level_save
 
     def __call__(self, val_loss, model, optimizer, epoch, scheduler):
 
@@ -48,7 +49,7 @@ class EarlyStoppingAndCheckPointer:
                                'optim_dict' : optimizer.state_dict(),
                                 'sched_dict' : scheduler.state_dict()},
                                is_best=True,
-                               checkpoint=self.basedir)
+                               checkpoint=self.basedir, save_epoch = self.epoch_level_save, epoch=epoch)
             self.trace_func(
                 f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
             self.val_loss_min = val_loss
@@ -61,7 +62,7 @@ class EarlyStoppingAndCheckPointer:
                                                     'optim_dict': optimizer.state_dict(),
                                                     'sched_dict' : scheduler.state_dict()},
                                                    is_best=False,
-                                                   checkpoint=self.basedir)
+                                                   checkpoint=self.basedir, save_epoch = self.epoch_level_save, epoch=epoch)
             if self.counter >= self.patience:
                 self.early_stop = True
             self.trace_func(
@@ -73,7 +74,7 @@ class EarlyStoppingAndCheckPointer:
                                                     'optim_dict': optimizer.state_dict(),
                                                     'sched_dict' : scheduler.state_dict()},
                                                    is_best=True,
-                                                   checkpoint=self.basedir)
+                                                   checkpoint=self.basedir, save_epoch = self.epoch_level_save, epoch=epoch)
             self.counter = 0
             self.trace_func(
                 f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
@@ -92,7 +93,7 @@ class ModelCheckPointer:
     def __init__(self):
         pass
 
-    def save_checkpoint(self, state, is_best, checkpoint):
+    def save_checkpoint(self, state, is_best, checkpoint,  save_epoch = False, epoch=0):
         """Saves model and training parameters at checkpoint + 'last.pth.tar'. If is_best==True, also saves
         checkpoint + 'best.pth.tar'
         Args:
@@ -109,6 +110,9 @@ class ModelCheckPointer:
         torch.save(state, filepath)
         if is_best:
             shutil.copyfile(filepath, os.path.join(checkpoint, 'best.pth.tar'))
+        if save_epoch:
+            shutil.copyfile(filepath, os.path.join(checkpoint, 'epoch-{}.pth.tar'.format(epoch)))
+
 
     def load_checkpoint(self, checkpoint, model, device, optimizer=None, scheduler=None):
         """Loads model parameters (state_dict) from file_path. If optimizer is provided, loads state_dict of
