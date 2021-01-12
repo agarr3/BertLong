@@ -45,16 +45,18 @@ class BertEnsembleModelConfig:
     tokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
     if model_name == 'xlnet-base-cased':
         MAX_LEN = 1024
+        TRAIN_BATCH_SIZE = [2, 2, 2, 1, 1]
+        ACCUMULATION_STEPS = 1
     elif model_name == "xlnet-large-cased":
         MAX_LEN = 512
+        TRAIN_BATCH_SIZE = [1, 1, 1, 1, 1]
+        ACCUMULATION_STEPS = 2
     MAX_LEN_FILENAME = 20
-    TRAIN_BATCH_SIZE = [1,1,1,1,1]
-    ACCUMULATION_STEPS = 1
     VALID_BATCH_SIZE = 1
     EPOCHS = 5
 
     LEARNING_RATE = 1e-05
-    LERANING_RATE_DECAY_MANUAL = [1, 0.9, 0.9*0.9, 0.9*0.9*0.9, 0.9*0.9*0.9*0.9]
+    LERANING_RATE_DECAY_MANUAL = [1, 0.9, 0.9*0.9*0.9, 0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9]
     LEARNING_RATE_AUTO_DECAY_FLAG = False
     LR_DECAY_MODE = "EPOCH"
 
