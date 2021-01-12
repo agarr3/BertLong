@@ -38,7 +38,7 @@ class BertEnsembleModelConfig:
     savedModelFileName = 'Bert_Ensemble_Model_v1.pt'
     tokenizer = BertTokenizer.from_pretrained(model_name)
     MAX_LEN = 512
-    TRAIN_BATCH_SIZE = [2,3,2,1,1]
+    TRAIN_BATCH_SIZE = [3,3,2,1,1]
     ACCUMULATION_STEPS = 1
     VALID_BATCH_SIZE = 2
     EPOCHS = 5
@@ -437,7 +437,7 @@ class BertEnsembleClassifier(object):
 
         early_stopping = EarlyStoppingAndCheckPointer(patience=self.configuration.PATIENCE, verbose=True, basedir=self.BASE_DIR)
 
-        self.initialLog(model,content_training_loader,filename_training_loader,content_validation_loader,filename_validation_loader, content_testing_loader, filename_testing_loader)
+        #self.initialLog(model,content_training_loader,filename_training_loader,content_validation_loader,filename_validation_loader, content_testing_loader, filename_testing_loader)
         for epoch in range(savedEpoch, self.configuration.EPOCHS):
             print("starting training. The LR is {}".format(scheduler.get_lr()))
 
@@ -702,8 +702,8 @@ class CustomDataset(Dataset):
 
 if __name__ == '__main__':
     runMode = "train"
-    #val_data_path = "/Users/ragarwal/eclipse-workspace/PyTEnsembleClassifier/src/doc_category_validation_data.pkl"
-    val_data_path = "/home/ec2-user/rajat/doc_category_validation_data.pkl"
+    val_data_path = "/Users/ragarwal/eclipse-workspace/PyTEnsembleClassifier/src/doc_category_validation_data.pkl"
+    #val_data_path = "/home/ec2-user/rajat/doc_category_validation_data.pkl"
     validationDataOriginal = pd.read_pickle(val_data_path)
     BASE_DIR = "bert_ensemble_content"
     if(runMode=="train"):
