@@ -38,13 +38,17 @@ import seaborn as sns
 
 class BertEnsembleModelConfig:
     defaultConfig = XLNetConfig()
-    model_name = 'xlnet-base-cased'
+    #model_name = 'xlnet-base-cased'
+    model_name = "xlnet-large-cased"
     labelEncoderFileName = 'labelEncoder_xlnet_mood.sav'
     savedModelFileName = 'Bert_Ensemble_Model_v1.pt'
     tokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
-    MAX_LEN = 1024
+    if model_name == 'xlnet-base-cased':
+        MAX_LEN = 1024
+    elif model_name == "xlnet-large-cased":
+        MAX_LEN = 512
     MAX_LEN_FILENAME = 20
-    TRAIN_BATCH_SIZE = [2,2,2,1,1]
+    TRAIN_BATCH_SIZE = [1,1,1,1,1]
     ACCUMULATION_STEPS = 1
     VALID_BATCH_SIZE = 1
     EPOCHS = 5
@@ -86,10 +90,16 @@ class BertEnsembletModel(torch.nn.Module):
             self.configuration = BertEnsembleModelConfig()
         self.bert_model_content = XLNetModel.from_pretrained(self.configuration.model_name, mem_len=1024)
 
-        self.digitcaps = DenseCapsule(in_num_caps=self.configuration.MAX_LEN,
-                                      in_dim_caps=768,
-                                      out_num_caps=num_classes, out_dim_caps=16,
-                                      routings=3)
+        if(self.configuration.model_name == "xlnet-large-cased"):
+            self.digitcaps = DenseCapsule(in_num_caps=self.configuration.MAX_LEN,
+                                          in_dim_caps=1024,
+                                          out_num_caps=num_classes, out_dim_caps=16,
+                                          routings=3)
+        elif (self.configuration.model_name == "xlnet-base-cased"):
+            self.digitcaps = DenseCapsule(in_num_caps=self.configuration.MAX_LEN,
+                                          in_dim_caps=768,
+                                          out_num_caps=num_classes, out_dim_caps=16,
+                                          routings=3)
 
         # self.dense = torch.nn.Linear(2 * 768, 2 * 768)
         # self.dropout = torch.nn.Dropout(0.3)
