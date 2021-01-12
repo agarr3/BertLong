@@ -458,9 +458,9 @@ class BertEnsembleClassifier(object):
             # model.load_state_dict(torch.load(PATH, map_location=self.device))
         model.to(self.device)
 
-        early_stopping = EarlyStoppingAndCheckPointer(patience=self.configuration.PATIENCE, verbose=True, basedir=self.BASE_DIR)
+        early_stopping = EarlyStoppingAndCheckPointer(patience=self.configuration.PATIENCE, verbose=True, basedir=self.BASE_DIR, epoch_level_save=True)
 
-        #self.initialLog(model,content_training_loader,filename_training_loader,content_validation_loader,filename_validation_loader, content_testing_loader, filename_testing_loader)
+        self.initialLog(model,content_training_loader,filename_training_loader,content_validation_loader,filename_validation_loader, content_testing_loader, filename_testing_loader)
         for epoch in range(savedEpoch, self.configuration.EPOCHS):
             print("starting training. The LR is {}".format(scheduler.get_lr()))
 
@@ -583,6 +583,7 @@ class BertEnsembleClassifier(object):
         plt.show()
         fig.savefig(os.path.join(self.BASE_DIR , 'loss_plot_{}.png'.format(epoch)), bbox_inches='tight')
 
+        fig = plt.figure(figsize=(10, 8))
         confusionMatrixTrain = confusionMatrixTrain.numpy()
         confusionMatrixTrain = confusionMatrixTrain / confusionMatrixTrain.astype(np.float).sum(axis=1, keepdims=True)
         hmap = sns.heatmap(confusionMatrixTrain, annot=True,
@@ -611,6 +612,7 @@ class BertEnsembleClassifier(object):
         plt.show()
         fig.savefig(os.path.join(self.BASE_DIR , 'accuracy_plot_{}.png'.format(epoch)), bbox_inches='tight')
 
+        fig = plt.figure(figsize=(10, 8))
         confusionMatrix = confusionMatrix.numpy()
         confusionMatrix = confusionMatrix / confusionMatrix.astype(np.float).sum(axis=1, keepdims=True)
         hmap = sns.heatmap(confusionMatrix , annot=True,
@@ -621,6 +623,7 @@ class BertEnsembleClassifier(object):
         figure.savefig(os.path.join(self.BASE_DIR ,'validation_confusion_matrix_{}.png'.format(epoch)), dpi=400)
 
         if self.configuration.HELD_OUT_VALIDATION and confusionMatrixTest is not None:
+            fig = plt.figure(figsize=(10, 8))
             confusionMatrix = confusionMatrixTest.numpy()
             confusionMatrix = confusionMatrix / confusionMatrix.astype(np.float).sum(axis=1, keepdims=True)
             hmap = sns.heatmap(confusionMatrix, annot=True,
