@@ -39,7 +39,7 @@ import seaborn as sns
 class BertEnsembleModelConfig:
     defaultConfig = XLNetConfig()
     #model_name = 'xlnet-base-cased'
-    model_name = "xlnet-large-cased"
+    model_name = "xlnet-base-cased"
     labelEncoderFileName = 'labelEncoder_xlnet_mood.sav'
     savedModelFileName = 'Bert_Ensemble_Model_v1.pt'
     tokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
@@ -417,6 +417,7 @@ class BertEnsembleClassifier(object):
                 lrForEpoch = self.configuration.LEARNING_RATE * self.configuration.LERANING_RATE_DECAY_MANUAL[epoch]
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = lrForEpoch
+                    print("setting LR manually to {}".format(lrForEpoch))
 
             train_losses, accuracyBoolListTrain, confusionMatrixTrain = self.run_training(epoch, model, content_training_loader, optimizer, scheduler)
             if self.configuration.LR_DECAY_MODE == "EPOCH" and self.configuration.LEARNING_RATE_AUTO_DECAY_FLAG:
@@ -586,9 +587,14 @@ if __name__ == '__main__':
         if not os.path.exists(BASE_DIR):
             os.mkdir(BASE_DIR)
 
-        originalData = pd.read_pickle(os.path.join(BASE_DIR, "ml_balanced_data.pkl"))
+        originalData = pd.read_pickle(os.path.join(BASE_DIR, "ml_balanced_data_augmented.pkl"))
+
+        originalData = originalData.replace(np.nan, '', regex=True)
 
         originalData['lyrics'] = originalData['lyrics'].apply(lambda x: cleanSingleSentenceWithoutRemovingMeaning(x))
+
+        # originalData = originalData[originalData['lyrics'] != ""]
+        # originalData = originalData.reset_index(drop=True)
 
         train, test = train_test_split(originalData, test_size=0.1, random_state=0, stratify=originalData[['Mood']])
         train = train.reset_index(drop=True)
