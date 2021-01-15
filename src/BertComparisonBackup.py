@@ -1,5 +1,6 @@
 import json
 import os
+import random
 
 import torch
 from sklearn.preprocessing import LabelBinarizer
@@ -187,7 +188,7 @@ def loss_fn(outputs, targets, config):
 
 def test(model,  test_loader, config, num_classes):
     model.eval()
-    with torch.no_grad:
+    with torch.no_grad():
         running_loss = 0.0
         confusionMatrix = torch.zeros(num_classes, num_classes)
         accuracyBoolList = []
@@ -348,6 +349,15 @@ def visualizeLoss(training_losses, test_losses, training_conf_matrix, config):
     figure = hmap.get_figure()
     figure.savefig(os.path.join(config.BASE_DIR ,'training_confusion_matrix.png'), dpi=400)
 
+def seed_everything(seed=1234):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    torch.backends.cudnn.deterministic = True
+
+seed_everything()
 from datasets import load_dataset
 dataset = load_dataset("glue", 'sst2')
 
