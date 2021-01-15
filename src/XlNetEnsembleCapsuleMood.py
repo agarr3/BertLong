@@ -593,8 +593,9 @@ if __name__ == '__main__':
 
         originalData['lyrics'] = originalData['lyrics'].apply(lambda x: cleanSingleSentenceWithoutRemovingMeaning(x))
 
-        # originalData = originalData[originalData['lyrics'] != ""]
-        # originalData = originalData.reset_index(drop=True)
+        originalData = originalData[originalData['lyrics'] != ""]
+
+        originalData = originalData.reset_index(drop=True)
 
         train, test = train_test_split(originalData, test_size=0.1, random_state=0, stratify=originalData[['Mood']])
         train = train.reset_index(drop=True)
