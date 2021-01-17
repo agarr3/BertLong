@@ -26,7 +26,7 @@ class BaseConfig:
     tokenizer = BertTokenizer.from_pretrained(model_name)
     TRAIN_BATCH_SIZE = 2
     VALID_BATCH_SIZE = 2
-    epoch = 5
+    epoch = 1
     PATIENCE = 5
     IN_LEARNING_RATE = 1e-05
     LR_GAMMA = 0.9
@@ -121,7 +121,7 @@ class BertCapsuleModel(torch.nn.Module):
     ):
 
         content_output = self.bert_model_content(input_ids, attention_mask=attention_mask)
-        op_bert_ensemble = utils.squash(content_output)
+        op_bert_ensemble = utils.squash(content_output[0])
         classvecs = self.digitcaps(op_bert_ensemble)
         outputs = classvecs.norm(dim=-1)
         return outputs
@@ -239,7 +239,7 @@ def train(model, optimizer, train_loader, test_loader, config, num_classes):
     if not os.path.exists(config.BASE_DIR):
         os.makedirs(config.BASE_DIR)
 
-    early_stopping = EarlyStoppingAndCheckPointer(patience=vanillaConfig.PATIENCE, verbose=True, basedir=config.BASE_DIR,
+    early_stopping = EarlyStoppingAndCheckPointer(patience=config.PATIENCE, verbose=True, basedir=config.BASE_DIR,
                                                   epoch_level_save=True)
     for epoch in range(config.epoch):  # loop over the dataset multiple times
 
@@ -390,31 +390,7 @@ validation_loader = DataLoader(validation_set,
 testing_loader = DataLoader(testing_set,
                                     batch_size=config.VALID_BATCH_SIZE,
                                     sampler=SequentialSampler(testing_set), drop_last=False)
-## Vanilla Model
-vanillaConfig = BertModelConfig()
-model = BertVanillaModel(num_classes=num_classes)
-model.to(device)
 
-
-no_decay = ["bias", "LayerNorm.weight"]
-optimizer_grouped_parameters = [{
-                "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-            }]
-
-optimizer = torch.optim.AdamW(params=optimizer_grouped_parameters, lr=vanillaConfig.IN_LEARNING_RATE)
-scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=vanillaConfig.LR_GAMMA)
-
-model, losses, accuracies, con_matrices, test_losses, test_accuracies, test_con_matrices = train(model, optimizer, training_loader,testing_loader, vanillaConfig, num_classes)
-visualizeLoss(losses, test_losses, con_matrices[-1],vanillaConfig)
-visualizeAccuracies(accuracies, test_accuracies, test_con_matrices[-1], vanillaConfig)
-
-resultDict = {'train_losses':losses,
-              'train_accuracies': accuracies,
-              'test_losses':test_losses,
-              'test_accuracies':test_accuracies}
-
-with open(os.path.join(vanillaConfig.BASE_DIR, 'data.json'), 'w+') as fp:
-    json.dump(resultDict, fp)
 
 ## Capsule Model
 capsuleConfig = BertCapsuleConfig()
@@ -430,7 +406,7 @@ optimizer_grouped_parameters = [{
 optimizer = torch.optim.AdamW(params=optimizer_grouped_parameters, lr=capsuleConfig.IN_LEARNING_RATE)
 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=capsuleConfig.LR_GAMMA)
 
-model, losses, accuracies, con_matrices, test_losses, test_accuracies, test_con_matrices = train(model, optimizer, training_loader,testing_loader, capsuleConfig, num_classes)
+model, losses, accuracies, con_matrices, test_losses, test_accuracies, test_con_matrices = train(model, optimizer, training_loader,validation_loader, capsuleConfig, num_classes)
 visualizeLoss(losses, test_losses, con_matrices[-1],capsuleConfig)
 visualizeAccuracies(accuracies, test_accuracies, test_con_matrices[-1], capsuleConfig)
 
@@ -440,4 +416,31 @@ resultDict = {'train_losses':losses,
               'test_accuracies':test_accuracies}
 
 with open(os.path.join(capsuleConfig.BASE_DIR, 'data.json'), 'w+') as fp:
+    json.dump(resultDict, fp)
+
+
+## Vanilla Model
+vanillaConfig = BertModelConfig()
+model = BertVanillaModel(num_classes=num_classes)
+model.to(device)
+
+
+no_decay = ["bias", "LayerNorm.weight"]
+optimizer_grouped_parameters = [{
+                "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            }]
+
+optimizer = torch.optim.AdamW(params=optimizer_grouped_parameters, lr=vanillaConfig.IN_LEARNING_RATE)
+scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=vanillaConfig.LR_GAMMA)
+
+model, losses, accuracies, con_matrices, test_losses, test_accuracies, test_con_matrices = train(model, optimizer, training_loader,validation_loader, vanillaConfig, num_classes)
+visualizeLoss(losses, test_losses, con_matrices[-1],vanillaConfig)
+visualizeAccuracies(accuracies, test_accuracies, test_con_matrices[-1], vanillaConfig)
+
+resultDict = {'train_losses':losses,
+              'train_accuracies': accuracies,
+              'test_losses':test_losses,
+              'test_accuracies':test_accuracies}
+
+with open(os.path.join(vanillaConfig.BASE_DIR, 'data.json'), 'w+') as fp:
     json.dump(resultDict, fp)
