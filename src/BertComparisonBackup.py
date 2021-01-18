@@ -26,7 +26,7 @@ class BaseConfig:
     tokenizer = BertTokenizer.from_pretrained(model_name)
     TRAIN_BATCH_SIZE = 2
     VALID_BATCH_SIZE = 2
-    epoch = 1
+    epoch = 3
     PATIENCE = 5
     IN_LEARNING_RATE = 1e-05
     LR_GAMMA = 0.9
