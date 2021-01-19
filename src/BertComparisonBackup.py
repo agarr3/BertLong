@@ -226,7 +226,7 @@ def test(model,  test_loader, config, num_classes):
 
         return running_loss, accuracy, confusionMatrix
 
-def train(model, optimizer, train_loader, test_loader, config, num_classes):
+def train(model, optimizer, scheduler, train_loader, test_loader, config, num_classes):
 
     losses = []
     accuracies = []
@@ -279,6 +279,7 @@ def train(model, optimizer, train_loader, test_loader, config, num_classes):
             booleans = (predicted == trueClass)
             accuracyBoolList.extend([boolean.item() for boolean in booleans])
 
+        scheduler.step()
         print('After epoch {}, the total loss is {}'.format(epoch,running_loss))
         accuracy = sum(accuracyBoolList)/len(accuracyBoolList) * 100
         print('After epoch {}, the total accuracy is {}'.format(epoch,accuracy))
@@ -406,7 +407,7 @@ optimizer_grouped_parameters = [{
 optimizer = torch.optim.AdamW(params=optimizer_grouped_parameters, lr=capsuleConfig.IN_LEARNING_RATE)
 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=capsuleConfig.LR_GAMMA)
 
-model, losses, accuracies, con_matrices, test_losses, test_accuracies, test_con_matrices = train(model, optimizer, training_loader,validation_loader, capsuleConfig, num_classes)
+model, losses, accuracies, con_matrices, test_losses, test_accuracies, test_con_matrices = train(model, optimizer,scheduler, training_loader,validation_loader, capsuleConfig, num_classes)
 visualizeLoss(losses, test_losses, con_matrices[-1],capsuleConfig)
 visualizeAccuracies(accuracies, test_accuracies, test_con_matrices[-1], capsuleConfig)
 
@@ -433,7 +434,7 @@ optimizer_grouped_parameters = [{
 optimizer = torch.optim.AdamW(params=optimizer_grouped_parameters, lr=vanillaConfig.IN_LEARNING_RATE)
 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=vanillaConfig.LR_GAMMA)
 
-model, losses, accuracies, con_matrices, test_losses, test_accuracies, test_con_matrices = train(model, optimizer, training_loader,validation_loader, vanillaConfig, num_classes)
+model, losses, accuracies, con_matrices, test_losses, test_accuracies, test_con_matrices = train(model, optimizer, scheduler, training_loader,validation_loader, vanillaConfig, num_classes)
 visualizeLoss(losses, test_losses, con_matrices[-1],vanillaConfig)
 visualizeAccuracies(accuracies, test_accuracies, test_con_matrices[-1], vanillaConfig)
 
