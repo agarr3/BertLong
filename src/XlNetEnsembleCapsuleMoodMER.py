@@ -53,7 +53,7 @@ class BertEnsembleModelConfig:
         ACCUMULATION_STEPS = 2
     MAX_LEN_FILENAME = 20
     VALID_BATCH_SIZE = 1
-    EPOCHS = 7
+    EPOCHS = 9
 
     LEARNING_RATE = 2e-05
     LERANING_RATE_DECAY_MANUAL = [1, 0.9, 0.9*0.9*0.9, 0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9*0.9*0.9*0.9*0.9]
@@ -61,7 +61,7 @@ class BertEnsembleModelConfig:
     LR_DECAY_MODE = "EPOCH"
 
     WEIGHT_DECAY = 0.0
-    PATIENCE = 3
+    PATIENCE = 9
     WARM_UP_RATIO = 0.06
     WARM_UP_STEPS = 0
     max_grad_norm = None
