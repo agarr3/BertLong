@@ -8,7 +8,7 @@ import math
 import os
 import random
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 from sklearn.preprocessing import LabelBinarizer
 from transformers import LongformerTokenizer, LongformerConfig, get_linear_schedule_with_warmup, BertConfig, \
     BertTokenizer, BertModel, XLNetConfig, XLNetTokenizer, XLNetModel
@@ -45,18 +45,18 @@ class BertEnsembleModelConfig:
     tokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
     if model_name == 'xlnet-base-cased':
         MAX_LEN = 1024
-        TRAIN_BATCH_SIZE = [2, 2, 2, 1, 1, 1, 1]
+        TRAIN_BATCH_SIZE = [2, 2, 2, 2, 1, 1, 1, 1, 1]
         ACCUMULATION_STEPS = 1
     elif model_name == "xlnet-large-cased":
         MAX_LEN = 512
-        TRAIN_BATCH_SIZE = [1, 1, 1, 1, 1, 1, 1]
+        TRAIN_BATCH_SIZE = [1, 1, 1, 1, 1, 1, 1 , 1, 1]
         ACCUMULATION_STEPS = 2
     MAX_LEN_FILENAME = 20
     VALID_BATCH_SIZE = 1
     EPOCHS = 7
 
-    LEARNING_RATE = 1e-05
-    LERANING_RATE_DECAY_MANUAL = [1, 0.9, 0.9*0.9*0.9, 0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9*0.9*0.9]
+    LEARNING_RATE = 2e-05
+    LERANING_RATE_DECAY_MANUAL = [1, 0.9, 0.9*0.9*0.9, 0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9*0.9*0.9, 0.9*0.9*0.9*0.9*0.9*0.9*0.9*0.9*0.9]
     LEARNING_RATE_AUTO_DECAY_FLAG = False
     LR_DECAY_MODE = "EPOCH"
 
@@ -608,13 +608,33 @@ if __name__ == '__main__':
 
         originalData['Mood'] = originalData.apply(lambda row: translateMood(row), axis=1)
 
-        train, test = train_test_split(originalData, test_size=0.1, random_state=0, stratify=originalData[['Mood']])
-        train = train.reset_index(drop=True)
-        test = test.reset_index(drop=True)
-        bert_ensemble_model = BertEnsembleClassifier(BASE_DIR, mode="train")
-        bert_ensemble_model.train(train, test, len(train.index), trainFromScratch=True)
-        print("After Training - traininng accuracy {}".format(bert_ensemble_model.train_accuracy_list))
-        print("After Training - Training loss List {}".format(bert_ensemble_model.avg_train_losses))
+        # train, test = train_test_split(originalData, test_size=0.1, random_state=0, stratify=originalData[['Mood']])
+
+        kfold = KFold(n_splits=10, shuffle = True, random_state = 3)
+        val_acc_list = []
+        for train_index, test_index in kfold.split(originalData):
+            train = originalData.iloc[train_index]
+            test = originalData.iloc[test_index]
+
+            train = train.reset_index(drop=True)
+            test = test.reset_index(drop=True)
+
+            bert_ensemble_model = BertEnsembleClassifier(BASE_DIR, mode="train")
+            bert_ensemble_model.train(train, test, len(train.index), trainFromScratch=True)
+            print("After Training of the current fold - validation accuracy {}".format(bert_ensemble_model.valid_accuracy_list))
+            val_acc_list.append(bert_ensemble_model.valid_accuracy_list)
+
+
+        print("final list {}".format(val_acc_list))
+        accSum = []
+        for foldAcc in val_acc_list:
+            accSum.append(max(foldAcc))
+
+        print("max list {}".format(accSum))
+        print("average accuracy {}".format(np.average(accSum)))
+
+
+
 
     else:
         pass
