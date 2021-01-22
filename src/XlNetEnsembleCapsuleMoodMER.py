@@ -8,7 +8,7 @@ import math
 import os
 import random
 
-from sklearn.model_selection import train_test_split, KFold
+from sklearn.model_selection import train_test_split, KFold, StratifiedKFold
 from sklearn.preprocessing import LabelBinarizer
 from transformers import LongformerTokenizer, LongformerConfig, get_linear_schedule_with_warmup, BertConfig, \
     BertTokenizer, BertModel, XLNetConfig, XLNetTokenizer, XLNetModel
@@ -65,9 +65,9 @@ class BertEnsembleModelConfig:
     WARM_UP_RATIO = 0.06
     WARM_UP_STEPS = 0
     max_grad_norm = None
-    #LOSS_FN = "BCEWithLogitsLoss"
+    LOSS_FN = "BCEWithLogitsLoss"
     #LOSS_FN = "CrossEntropyLoss"
-    LOSS_FN = "MarginLoss"
+    #
     #BERT_MODEL_OP = "last_hidden"
     BERT_MODEL_OP = "CLS"
 
@@ -76,6 +76,11 @@ class BertEnsembleModelConfig:
     CONDITIONAL_TRAINING = False
 
     DETERMINISTIC = True
+    CAPS_PURE = True
+    if CAPS_PURE:
+        LOSS_FN = "MarginLoss"
+    else:
+        LOSS_FN = "BCEWithLogitsLoss"
 
 
 
@@ -103,9 +108,9 @@ class BertEnsembletModel(torch.nn.Module):
                                           out_num_caps=num_classes, out_dim_caps=16,
                                           routings=3)
 
-        # self.dense = torch.nn.Linear(2 * 768, 2 * 768)
-        # self.dropout = torch.nn.Dropout(0.3)
-        # self.classifier = torch.nn.Linear(2 * 768, num_classes)
+        self.dense = torch.nn.Linear(num_classes * 16, num_classes * 16)
+        self.dropout = torch.nn.Dropout(0.3)
+        self.classifier = torch.nn.Linear(num_classes * 16, num_classes)
 
     def forward(
             self,
@@ -130,7 +135,15 @@ class BertEnsembletModel(torch.nn.Module):
         op_bert_ensemble = utils.squash(content_output)
 
         classvecs = self.digitcaps(op_bert_ensemble)
-        outputs = classvecs.norm(dim=-1)
+
+        if self.configuration.CAPS_PURE:
+            outputs = classvecs.norm(dim=-1)
+        else:
+            classvecs_fl = torch.flatten(classvecs)
+            x = self.dense(classvecs_fl)
+            x = self.dropout(x)
+            outputs = self.classifier(x)
+
         return outputs
 
 
@@ -610,9 +623,10 @@ if __name__ == '__main__':
 
         # train, test = train_test_split(originalData, test_size=0.1, random_state=0, stratify=originalData[['Mood']])
 
-        kfold = KFold(n_splits=10, shuffle = True, random_state = 3)
+        skfold = StratifiedKFold(n_splits=10, shuffle = True, random_state = 3)
         val_acc_list = []
-        for train_index, test_index in kfold.split(originalData):
+        t = originalData.Mood
+        for train_index, test_index in skfold.split(np.zeros(len(t)), t):
             train = originalData.iloc[train_index]
             test = originalData.iloc[test_index]
 
